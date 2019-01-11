@@ -65,7 +65,7 @@ class Dechunker:
         return result
 
 if __name__=='__main__':
-    from bi_aural import probe_signal
+    import probe_signal
     import matplotlib.pyplot as plt
     fc = 7000  # Hz
     bw = 12000  # Hz
@@ -87,6 +87,3 @@ if __name__=='__main__':
     ax.plot(raw_out[: comp_range], 'b')
     ax.plot(full_loop[: comp_range, 0], 'g--')
     plt.show(block=False)
-
-
-

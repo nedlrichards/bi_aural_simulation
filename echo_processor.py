@@ -3,54 +3,58 @@ import scipy.signal as sig
 
 class Processor:
     """bandpass, match filter, hilbert"""
-    def __init__(self, replica, f_bounds, fs, array_length=None):
+    def __init__(self, replica, f_bounds, fs, NFFT, num_chan):
         """ setup for signal processing
         Replica vector is not time reversed
         f_bounds for bandpass filter
         set array length may allow for some pre-calculation
         """
-        self.mf = np.flipud(np.array(replica))
         self.f_bounds = f_bounds
         self.fs = fs  # Hz
-        self._create_bandpass()
-        self.processor = None  # precompute filter values
-        if array_length is not None:
-            NFFT = int(2 ** np.ceil(np.log2(array_length)))
-            f1_FT = np.fft.fft(sp_er.bp, NFFT)
-            f2_FT = np.fft.fft(sp_er.mf, NFFT)
-            self.processor = f1_FT * f2_FT
+        self.bp = self._create_bandpass()
+        self.mf = np.array(replica)[:: -1]
+        # evens just make life simpler
+        if NFFT % 2 == 1:
+            NFFT += 1
+        self.NFFT = NFFT
+        self.num_chan = num_chan
+        # center time axis to account for filter shift
+        self.filter_length = self.bp.size // 2 + self.mf.size - 1
+        if self.filter_length > NFFT:
+            err = 'Filter ({} sample) is longer than NFFT ({} samples'.format(
+                    self.filter_length, self.NFFT)
+            raise(ValueError(err))
+        self.taxis = np.arange(NFFT) / fs
+        self.taxis -= self.filter_length / fs
+        self._hilbFT = np.zeros((num_chan, NFFT), dtype=np.complex_)
+        f1_FT = np.fft.rfft(self.bp, NFFT)
+        f2_FT = np.fft.rfft(self.mf, NFFT)
+        self.filt_FT = f1_FT * f2_FT
 
     def __call__(self, signal):
         """Returned processed signal"""
-        if self.processor is None:
-            NFFT = int(2 ** np.ceil(np.log2(signal.shape[1])))
-            f1_FT = np.fft.fft(self.bp, NFFT)
-            f2_FT = np.fft.fft(self.mf, NFFT)
-            processor = f1_FT * f2_FT
-        else:
-            processor = self.processor
-            NFFT = self.processor.size
-
+        # check that NFFT is appropriate
+        signal = np.array(signal, ndmin=2)
+        if signal.shape[-1] > self.NFFT:
+            raise(ValueError('Signal is longer than NFFT, increase NFFT'))
         result = []
-        for chan in signal:
-            chan_FT = np.fft.fft(chan, NFFT)
-            chan_FT = chan_FT * processor
-            chan_FT[0: NFFT // 2] = 0 + 0 * 1j
-            ts = 2 * np.fft.ifft(chan_FT)
-            # Crop off unecassary data
-            filter_length = self.mf.size + self.bp.size
-            result.append(ts[filter_length: -filter_length])
-        return np.array(result)
+        for i, chan in enumerate(signal):
+            chan_FT = np.fft.rfft(chan, self.NFFT)
+            chan_FT = chan_FT * self.filt_FT
+            self._hilbFT[i, : self.NFFT // 2 + 1] = 2 * chan_FT
+        ts = 2 * np.fft.ifft(self._hilbFT)
+        return np.squeeze(ts)
 
     def _create_bandpass(self):
         """Create a bandpass FIR filter"""
-        num_taps = int(2 ** 8)
+        num_taps = int(2 ** 8) + 1
         beta = 1.5 * np.pi
-        self.bp = sig.firwin(num_taps, self.f_bounds, window=('kaiser', beta),
-                             pass_zero=False, nyq=self.fs/2)
+        bp = sig.firwin(num_taps, self.f_bounds, window=('kaiser', beta),
+                        pass_zero=False, nyq=self.fs/2)
+        return bp
 
 if __name__ == "__main__":
-    from bi_aural import probe_signal
+    import probe_signal
     import matplotlib.pyplot as plt
     # Create a probe signal
     fc = 7000  # Hz
@@ -63,21 +67,17 @@ if __name__ == "__main__":
     # Specify recording parameters
     lfm = probe_signal.LFM(duty_cycle, fc, bw, T, fs)
     # replica vector
+
     mf = probe_signal.LFM(duty_cycle, fc, bw, duty_cycle, fs)
-    mf = np.flipud(np.array(mf.signal))
     f_bounds = (fc - bw / 2, fc + bw / 2)
-    procesor = Processor(mf, f_bounds, fs)
 
-    signal = procesor.bp
-    NFFT = int(2 ** np.log2(np.ceil(signal.size) + 3))
-    FT = np.fft.fft(signal, NFFT)
-    f = np.arange(NFFT) / NFFT * fs
+    procesor = Processor(mf.signal, f_bounds, fs, lfm.time.size, 1)
 
-    FT = 20 * np.log10(np.abs(FT) + np.spacing(1))
-    FT -= np.max(FT)
+    sig_out = procesor(mf.signal)
 
     fig, ax = plt.subplots()
-    ax.plot(f, FT)
-    ax.set_ylim(-50, 3)
+    ax.plot(procesor.taxis, np.real(sig_out))
+    ax.plot(procesor.taxis, np.imag(sig_out))
+    #ax.set_ylim(-50, 3)
 
     plt.show(block=False)
