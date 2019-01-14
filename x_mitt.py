@@ -33,6 +33,7 @@ chunck_size = int(read_samples * looper.num_out_channels * looper.num_bytes)
 
 # output method
 dc = pa_np_interface.Dechunker()
+ua = ua101_interface.UA101()
 
 # play and record callback
 
@@ -44,50 +45,22 @@ def buffer_callback(lfm_out, in_data, frame_count, time_info, status):
     out_data = lfm_out.read()
     return (out_data, pa.paContinue)
 
-# setup usb device
-def find_UA101():
-    """Find device with UA-101 in string"""
-    for i in range(p.get_device_count()):
-        name = p.get_device_info_by_index(i)['name']
-        if 'UA-101' in name:
-            return i
-
 def run_loop():
     """Put pyaudio stuff in a try block :)"""
     elapsed_time = 0
     index_start = 0
     current_cycle = 0
     completed_cycles = []
-    samples = np.zeros((looper.num_out_channels, samples_per_chirp),
-                       dtype=np.float32)
+    samples = []
     # make samples a power of 2 for ease of filtering
     start_time = time.time()
     while time.time() - start_time < rough_time:
         # Rely on callback to break loop
         time.sleep(0.1)
         while not q.empty() and len(completed_cycles) < num_cycles:
-            if index_start + read_samples < samples_per_chirp:
-                next_samples = slice(index_start, index_start + read_samples)
-                current_buffer = dc.buf_to_np(b''.join(q.get())).T
-                samples[:, next_samples] = current_buffer
-                index_start += read_samples
-            else:
-                amount_extra = int(index_start + read_samples -
-                                   samples_per_chirp)
-                amount_space = int(read_samples - amount_extra)
-                samples[:, index_start: ] = current_buffer[:, :amount_space]
-                result = samples.copy()
-                # The first chuck of data may happen before X-mission has begun
-                #result = result[:, slice(read_samples, None)]
-                result = sp_er(result)
-                # Save the rest of the buffer to the new samples array
-                samples[:, :amount_extra] = current_buffer[:, amount_space:]
-                completed_cycles.append(result)
-                index_start = amount_extra
-    # XXX: Having some issues between mac and linux buffers
-    if index_start > 2 * read_samples:
-        completed_cycles.append(sp_er(samples))
-    return completed_cycles
+            current_buffer = dc.buf_to_np(b''.join(q.get()))
+            samples.append(current_buffer)
+    return samples
 
 try:
     p = pa.PyAudio()
@@ -99,8 +72,8 @@ try:
                     rate=int(fs),
                     output=True,
                     input=True,
-                    output_device_index=find_UA101(),
-                    input_device_index=find_UA101(),
+                    output_device_index=ua.find_UA101(),
+                    input_device_index=ua.find_UA101(),
                     stream_callback=callback,
                     frames_per_buffer=read_samples)
     stream.start_stream()
