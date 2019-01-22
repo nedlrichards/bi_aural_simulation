@@ -6,15 +6,12 @@ from scipy.io import wavfile
 """Create pulse signals and basic related information"""
 class Probe:
     """Base class"""
-    def __init__(self, fc, bw, period, fs):
+    def __init__(self, num_samples, fs):
         """Save basic information"""
-        self.fc = fc
-        self.bw = bw
-        self.fs = fs
-        self.period = period
-        num_samples = int(np.round(period * fs))
+        self.num_samples = num_samples
+        self.period = num_samples * fs
         self.time = np.arange(num_samples) / fs
-        self.signal = np.zeros(self.time.shape)
+        self.signal = None
 
     def FT(self):
         """Compute the signal's FT"""
@@ -32,9 +29,16 @@ class Probe:
 
 class LFM:
     """A LFM chirp"""
-    def __init__(self, duty_cycle, fc, bw, period, fs):
+    def __init__(self, duty_cycle, fc, bw, fs):
         """Duty cycle is length pulse is active"""
-        self.pulse = Probe(fc, bw, period, fs)
+        num_samples = int(np.ceil(duty_cycle * fs))
+        # make even
+        if num_samples % 2:
+            num_samples += 1
+        period = num_samples / fs
+        self.fc = fc
+        self.bw = bw
+        self.pulse = Probe(num_samples, fs)
         self.pulse.signal = self.lfm_chirp(duty_cycle)
 
     @property
@@ -49,17 +53,15 @@ class LFM:
 
     def lfm_chirp(self, duty_cycle):
         """create an lfm chirp to specs"""
-        f1 = self.pulse.fc - self.pulse.bw / 2
-        f2 = self.pulse.fc + self.pulse.bw / 2
+        f1 = self.fc - self.bw / 2
+        f2 = self.fc + self.bw / 2
         k = (f2 - f1) / duty_cycle
-        t = np.array(self.time)
-        t_i = t <= duty_cycle
-        chirp = np.zeros(self.signal.shape)
-        chirp[t_i] = np.sin(2 * np.pi * (f1 * t[t_i] +
-                                    k / 2 * t[t_i] ** 2))
+        t = self.time
+        chirp = np.zeros(self.pulse.num_samples)
+        chirp = np.sin(2 * np.pi * (f1 * t + k / 2 * t ** 2))
         # window?
-        window = sig.kaiser(sum(t_i), 2.0 * np.pi)
-        chirp[t_i] *= window
+        window = sig.kaiser(self.pulse.num_samples, 2.0 * np.pi)
+        chirp *= window
 
         return chirp
 
@@ -80,8 +82,9 @@ class NarrowBand:
         # make even
         if num_samples % 2:
             num_samples += 1
-        period = num_samples / fs
-        self.pulse = Probe(fc, bw, period, fs)
+        self.fc = fc
+        self.bw = bw
+        self.pulse = Probe(num_samples, fs)
         signal = self.narrow_band()
         self.pulse.signal = signal
 

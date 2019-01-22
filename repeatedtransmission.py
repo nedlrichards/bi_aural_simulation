@@ -7,7 +7,7 @@ class RepeatedTransmission:
     def __init__(self, signal, chunck_size, num_loops):
         self.xmission = np.array(signal)
         self.ua = ua101_interface.UA101()
-        self.chunck_size = chunck_size
+        self.chunck_size = int(chunck_size * self.num_out_channels * looper.num_bytes)
         self.num_loops = num_loops
         self.current_loop = None
         self.out_buffer = None

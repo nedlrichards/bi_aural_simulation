@@ -21,7 +21,7 @@ class Processor:
         # center time axis to account for filter shift
         self.filter_length = self.bp.size // 2 + self.mf.size - 1
         if self.filter_length > NFFT:
-            err = 'Filter ({} sample) is longer than NFFT ({} samples'.format(
+            err = 'Filter ({} sample) is longer than NFFT ({} samples)'.format(
                     self.filter_length, self.NFFT)
             raise(ValueError(err))
         self.taxis = np.arange(NFFT) / fs

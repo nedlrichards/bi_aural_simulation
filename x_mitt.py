@@ -1,87 +1,69 @@
 import numpy as np
 import pyaudio as pa
-import probe_signal, pa_np_interface, loop_buffer, echo_processor
+import probe_signal, ua101_interface, echo_processor
 import numpy as np
 import matplotlib.pyplot as plt
 import time
 import sys
 from io import BytesIO
 import queue
-from cycler import cycler
+from cycler import cycler  # plotting specifications
 
 # Create a probe signal
 fc = 7000  # Hz
 bw = 12000  # Hz
-fs = int(44.1e3)  # Hz
+fs = int(96e3)  # Hz
+#fs = int(44.1e3)  # Hz
+
 duty_cycle = 0.5
-T = duty_cycle + 0.3  # second
-num_cycles = 3  # seconds
-rough_time = num_cycles * T + 0.1
+pause = 0.3
+
+num_cycles = 3
+rough_time = num_cycles * (duty_cycle + pause) + 0.1
+
 # Specify recording parameters
-lfm = probe_signal.LFM(duty_cycle, fc, bw, T, fs)
-# Matched filter specifications
-replica = probe_signal.LFM(duty_cycle, fc, bw, duty_cycle, fs).signal
+lfm = probe_signal.LFM(duty_cycle, fc, bw, fs)
 f_bounds = (fc - bw / 2, fc + bw / 2)
-sp_er = echo_processor.Processor(replica, f_bounds, fs)
-# Recording specifications
-samples_per_chirp = int(T * fs)
 
 # input data
-read_samples = int(2 ** 10)
-looper = loop_buffer.LoopBuffer(lfm.signal)
-chunck_size = int(read_samples * looper.num_out_channels * looper.num_bytes)
+read_length = int(2 ** 10)
 
 # output method
-dc = pa_np_interface.Dechunker()
-ua = ua101_interface.UA101()
+ua = ua101_interface.UA101(fs, read_length)
+sp_er = echo_processor.Processor(lfm.signal,
+                                 f_bounds,
+                                 fs,
+                                 2 ** 16,
+                                 ua.num_channels)
 
 # play and record callback
-
 q = queue.Queue()
 record = []
 
-def buffer_callback(lfm_out, in_data, frame_count, time_info, status):
+def buffer_callback(dev_inter, in_data, frame_count, time_info, status):
     q.put([in_data])
-    out_data = lfm_out.read()
-    return (out_data, pa.paContinue)
+    #out_data = dev_inter.next_out()
+    out_data = None
+    return (None, pa.paContinue)
 
 def run_loop():
     """Put pyaudio stuff in a try block :)"""
     elapsed_time = 0
-    index_start = 0
-    current_cycle = 0
-    completed_cycles = []
     samples = []
     # make samples a power of 2 for ease of filtering
     start_time = time.time()
+    ua(buffer_callback)
     while time.time() - start_time < rough_time:
         # Rely on callback to break loop
         time.sleep(0.1)
-        while not q.empty() and len(completed_cycles) < num_cycles:
-            current_buffer = dc.buf_to_np(b''.join(q.get()))
-            samples.append(current_buffer)
-    return samples
 
-try:
-    p = pa.PyAudio()
-    # start up loop
-    looper(num_cycles, chunck_size)
-    callback = lambda *args: buffer_callback(looper, *args)
-    stream = p.open(format=pa.paInt24,
-                    channels=looper.num_out_channels,
-                    rate=int(fs),
-                    output=True,
-                    input=True,
-                    output_device_index=ua.find_UA101(),
-                    input_device_index=ua.find_UA101(),
-                    stream_callback=callback,
-                    frames_per_buffer=read_samples)
-    stream.start_stream()
-    completed_samples = run_loop()
-finally:
-    stream.stop_stream()
-    stream.close()
-    p.terminate()
+run_loop()
+1/0
+samples = []
+while not q.empty():
+    current_buffer = ua.bytes_to_array(b''.join(q.get()))
+    samples.append(current_buffer)
+samples = np.hstack(samples)
 
 fig, ax = plt.subplots()
 ax.set_prop_cycle(cycler('color', ['b', 'g']))

@@ -3,20 +3,68 @@ import numpy as np
 
 class UA101:
     """Buffer array and information related to the EDIROL UA101"""
-    def __init__(self):
+    def __init__(self, fs, read_length):
         """basic type inventory"""
+        self.fs = fs
+        self.read_length = read_length
         self.num_bytes = 3
-        self.num_out_channels = 1
-        self.num_in_channels = 2
+        self.num_channels = 2
+        self.chunck_size = int(read_length)
+        #self.chunck_size = int(read_length
+                               #* self.num_channels
+                               #* self.num_bytes)
+        self.x_mitt = None
+        self._x_mitt_buff = None
 
-    @property
-    def device_ID(self):
-        """Find pyaudio ID number. Returns None if not found"""
-        #Find device with UA-101 in string
-        for i in range(p.get_device_count()):
-            name = p.get_device_info_by_index(i)['name']
-            if 'UA-101' in name:
-                return i
+    def __call__(self, call_back):
+        """Open UA101 comms, run call_back"""
+        is_output = self._x_mitt_buff is not None
+        try:
+            p = pa.PyAudio()
+
+            for i in range(p.get_device_count()):
+                name = p.get_device_info_by_index(i)['name']
+                if 'UA-101' in name:
+                    ua_dev = i
+
+            # start up loop
+            cb = lambda *args: call_back(self, *args)
+            pa_stream = p.open(format=pa.paInt24,
+                               channels=self.num_channels,
+                               rate=int(self.fs),
+                               output=is_output,
+                               input=True,
+                               input_device_index=ua_dev,
+                               stream_callback=cb,
+                               frames_per_buffer=self.chunck_size)
+                               #output_device_index=ua_dev,
+            pa_stream.start_stream()
+        finally:
+            pa_stream.stop_stream()
+            pa_stream.close()
+            p.terminate()
+
+    def init_out_buffer(self, x_mitt, pause):
+        """create output buffer from transmit signal and a pause duration
+        x_mitt: 1D numpy array of transmitted signal
+        pause: wait duration between xmissions, (s)
+        """
+        x_mission = np.array(x_mitt)
+        pause = np.zeros(int(np.ceil(pause * self.fs)))
+        x_mission = np.hstack([pause, x_mission])
+        self.x_mitt = x_mission
+        self._x_mitt_buff = self.array_to_bytes(x_mission)
+
+    def next_out(self):
+        """Return next output, reload from start if signal is exhausted"""
+        if self._x_mitt_buff is None:
+            raise(ValueError('Output signal is not initialized'))
+        out = self._x_mitt_buff.read(self.chunck_size)
+        if len(out) < self.chunck_size:
+            self._x_mitt_buff = self.array_to_bytes(self.xmission)
+            new_data = self._x_mitt_buff.read(self.chunck_size - len(out))
+            out = out + new_data
+        return out
 
     def array_to_bytes(self, in_array):
         """Create a byte buffer of int24 type"""
@@ -34,21 +82,20 @@ class UA101:
         """Convert a buffer of bytes to numpy array
         in: 2 channel int24
         out: float32 numpy array"""
-        self.num_bytes = 3
         # input is signed, hence - 1 in exponent
         in_range = 2 ** (8 * self.num_bytes - 1)
         # Convert values to 0-1 range
         int_to_float = 1 / in_range
-        a = np.ndarray(len(buf), np.dtype('<i1'), buf)
-        e = np.zeros(int(len(buf) // self.num_bytes), np.dtype('<i4'))
+        a = np.ndarray(len(bytes_buffer), np.dtype('<i1'), bytes_buffer)
+        e = np.zeros(int(len(bytes_buffer) // self.num_bytes), np.dtype('<i4'))
         for i in range(self.num_bytes):
             # e is offset by 1, this makes LSB 0 (up-casting data type)
             e.view(dtype='<i1')[i + 1::4] = a.view(dtype='<i1')[i::3]
         result = e.astype(np.float32) * int_to_float
         # copy to take care of number of channels
         chans = []
-        for i in range(self.num_in_channels):
-            chans.append(result[i:: self.num_in_channels])
+        for i in range(self.num_channels):
+            chans.append(result[i:: self.num_channels])
         result = np.vstack(chans).T
         return result
 
