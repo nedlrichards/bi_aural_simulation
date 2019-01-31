@@ -3,7 +3,7 @@ import numpy as np
 from math import pi
 from queue import Queue
 import matplotlib.pyplot as plt
-from scipy.signal import firwin, convolve
+from scipy.signal import firwin, convolve, resample
 
 class UA101:
     """Open an I/O interface with a UA101"""
@@ -42,7 +42,6 @@ class UA101:
             self.fci = np.bitwise_or(self.fci, fci)
         self._lastdata = Queue()
         self._all_data = Queue()
-        self.recorded_data = None
         self.last_center = None
         self.status = None
 
@@ -85,14 +84,29 @@ class UA101:
         # empty out last data queue
         while not self._lastdata.qsize() == 0:
             self._lastdata.get()
+        return recorded_data
 
-        # baseband data
+    def baseband(self, data_in, is_inverse=False):
+        """baseband data"""
         fbb = self.last_center - self.f_bb
         phase_bb = np.exp(-1j * 2 * pi * fbb * self._taxis)[:, None]
-        recorded_data_FT = np.fft.fft(recorded_data * phase_bb, axis=0)
-        recorded_data_FT *= self.bp_FT[:, None]
-        recorded_data_bb = np.fft.ifft(recorded_data_FT, axis=0)
-        self.recorded_data = recorded_data_bb[: : self.decimation]
+        if is_inverse:
+            phase_bb = np.conj(phase_bb)
+        in_data_FT = np.fft.fft(data_in * phase_bb, axis=0)
+        if is_inverse:
+            in_data_FT[1:self.NFFT // 2] /= 2
+            # make data conjugate symetric
+            in_data_FT[self.NFFT // 2: ] = \
+                np.conj(in_data_FT[self.NFFT // 2])[::-1]
+        else:
+            in_data_FT *= self.bp_FT[:, None]
+        recorded_data_bb = np.fft.ifft(in_data_FT, axis=0)
+        return recorded_data_bb[: : self.decimation]
+
+    def beamform(self, baseband_data, relative_delays):
+        """Construct a time domain interpolator for data, delay and sum"""
+        data_up = resample(baseband_data, self.taxis.size * 10)
+
 
     def _callback(self, indata, outdata, frames, time, status):
         """Check each block for excedence in frequencies of interest"""
