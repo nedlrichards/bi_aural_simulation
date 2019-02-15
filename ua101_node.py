@@ -2,15 +2,13 @@ import sounddevice as sd
 import numpy as np
 from math import pi
 from queue import Queue
-import matplotlib.pyplot as plt
 from scipy.signal import firwin, convolve, resample
 
 class UA101:
     """Open an I/O interface with a UA101"""
     def __init__(self, fc, record_threshold):
         """Basic setup"""
-        # can specify one or more center frequencies
-        self.fc = np.array(fc, ndmin=1)
+        self.fc = fc
         self.record_threshold = record_threshold
         self.blocksize = 4096  # record and write size
         self.numblocks = 16
