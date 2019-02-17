@@ -17,7 +17,7 @@ class NoteProcessing:
         self.f_lower = max(self.fc - self.bw, fc - f_bb / self.edge_factor)
         self.f_upper = min(self.fc + self.bw, fc + f_bb / self.edge_factor)
         # minimum sampling frequency after downsampling
-        self.fcutoff = (self.f_upper - self.fc) * self.edge_factor
+        self.fcutoff = (self.f_upper - self.fc) * self.edge_factor + f_bb
         # set event trigger threshold
         self.record_threshold = record_threshold
         self.fs = fs
@@ -36,7 +36,7 @@ class NoteProcessing:
         numtaps = 1025
         edges = [self.f_lower, self.f_upper]
         self.bp_filt = firwin(numtaps, edges, window='blackmanharris',
-                              pass_zero=False, fs=self.samplerate)
+                              pass_zero=False, fs=fs)
         self.bp_FT = np.fft.fft(self.bp_filt, n=self.record_length)
         # Add a Hilbert xform to bandpass filter to make signal analytic
         self.bp_FT[1:self.NFFT // 2] *= 2
@@ -45,7 +45,7 @@ class NoteProcessing:
         self.decimation = int(np.ceil(self.fs / self.fcutoff))
         # keep private time axis for recording before downsampling
         self._taxis = np.arange(self.record_length, dtype=np.float_)
-        self._taxis /= self.samplerate
+        self._taxis /= fs
         # keep public time axis for recording after downsampling
         self.taxis = self._taxis[: : self.decimation]
         # beamforming specifications
@@ -58,7 +58,8 @@ class NoteProcessing:
         in_data_FT *= self.bp_FT[:, None]
         recorded_data_bb = np.fft.ifft(in_data_FT, axis=0)
         # demodulate signal with complex carrier
-        phase_bb = np.exp(-2j * pi * self.fbb * self._taxis)[:, None]
+        f_shift = self.fc - self.f_bb
+        phase_bb = np.exp(-2j * pi * f_shift * self._taxis)[:, None]
         recorded_data_bb *= phase_bb
         # downsample data before returning
         data_final = recorded_data_bb[: : self.decimation, :]
@@ -66,19 +67,25 @@ class NoteProcessing:
 
     def beamform(self, baseband_data, relative_delays):
         """Construct a time domain interpolator for data, delay and sum"""
-        data_up = resample(baseband_data[1: ],
+        data_up = resample(baseband_data[:, 1:],
                            self.taxis.size * self.beam_upsample)
         dt = (self.taxis[-1] - self.taxis[0]) / (self.taxis.size - 1)
         taxis_up = np.arange(data_up.shape[0]) * dt / self.beam_upsample
 
         # intilize beam data to first channel
-        beam_out = np.tile(baseband_data[0], relative_delays.shape[0])
+        beam_out = np.tile(baseband_data[:, 0], (relative_delays.shape[0], 1))
+        beam_out = beam_out.T
 
-        for delays, channel in zip(relative_delays[1: ], data_up[1: ]):
+        # frequency of demodulation
+        f_shift = self.fc - self.f_bb
+
+        for delays, channel in zip(relative_delays[:, 1: ].T, data_up.T):
             data_ier = interp1d(taxis_up, channel, kind='cubic', axis=0,
-                                fill_value=0 + 0j, bounds_error=False)
+                                fill_value=0, bounds_error=False)
             beam_times = self.taxis[:, None] - delays[None, :]
+            # remove baseband phase shift from each channel
+            delayed_chans = data_ier(beam_times)
+            delayed_chans *= np.exp(-2j * pi * f_shift * delays[None, :])
             # add each channel with delay to the reference channel
-            beam_out += data_ier(beam_times)
+            beam_out += delayed_chans
         return beam_out
-

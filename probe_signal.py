@@ -1,7 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import scipy.signal as sig
-from scipy.io import wavfile
 
 """Create pulse signals and basic related information"""
 class Probe:
@@ -9,15 +7,16 @@ class Probe:
     def __init__(self, num_samples, fs):
         """Save basic information"""
         self.num_samples = num_samples
+        self.fs = fs
         self.period = num_samples * fs
         self.time = np.arange(num_samples) / fs
         self.signal = None
 
     def FT(self):
         """Compute the signal's FT"""
-        NFFT = int(2 ** np.log2(np.ceil(self.signal.size) + 1))
+        NFFT = int(2 ** np.ceil(np.log2(self.signal.size) + 4))
         FT = np.fft.rfft(self.signal, NFFT)
-        f = np.arange(NFFT / 2) / NFFT * self.fs
+        f = np.arange(NFFT // 2 + 1) / NFFT * self.fs
         return (FT, f)
 
     def auto_corr(self):
@@ -84,6 +83,7 @@ class NarrowBand:
             num_samples += 1
         self.fc = fc
         self.bw = bw
+        self.fs = fs
         self.pulse = Probe(num_samples, fs)
         signal = self.narrow_band()
         self.pulse.signal = signal
@@ -100,7 +100,7 @@ class NarrowBand:
 
     def narrow_band(self):
         """create an narrow banded pulse to specs"""
-        xmitt = np.sin(2 * np.pi * self.pulse.fc * self.time)
+        xmitt = np.sin(2 * np.pi * self.fc * self.time)
         # window is unknown, assuming a pretty narrow mainlobe
         window = sig.kaiser(self.time.size, 1.0 * np.pi)
         xmitt *= window
@@ -113,38 +113,3 @@ class NarrowBand:
     def auto_corr(self):
         """Inherit pulse method"""
         return self.pulse.auto_corr()
-
-
-if __name__ == "__main__":
-    fc = 5000  # Hz
-    bw = 12000  # Hz
-    fs = 88.2e3  # Hz
-    duty_cycle = 0.5
-    T = 0.6  # second
-    #lfm = LFM(duty_cycle, fc, bw, T, fs)
-    lfm = NarrowBand(fc, 500, fs)
-    FT, freq = lfm.FT()
-    a_corr, t_corr = lfm.auto_corr()
-
-    fig, ax = plt.subplots()
-    ax.plot(lfm.time, lfm.signal)
-    ax.set_xlabel('time, s')
-    ax.set_ylabel('amplitude')
-    ax.set_title('probe signal time series')
-
-    fig, ax = plt.subplots()
-    db_FT = 20 * np.log10(np.abs(FT))
-    db_FT -= np.max(db_FT)
-    ax.plot(freq, db_FT)
-    ax.set_xlabel('frequency, Hz')
-    ax.set_ylabel('Magnitude, dB')
-    ax.set_title('probe signal fourier transform')
-
-    fig, ax = plt.subplots()
-    ax.plot(1e3 * t_corr, a_corr)
-    ax.set_xlabel('time, ms')
-    ax.set_ylabel('amplitude')
-    ax.set_title('autocorrelation time series')
-    ax.set_xlim(-1, 1)
-
-    plt.show(block=False)
