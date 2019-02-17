@@ -12,7 +12,7 @@ class NoteProcessing:
         self.bw = 500
         self.f_bb = f_bb  # final frequency of signal after baseband
         # fudge factor on either side of filter for non-perfect edges
-        self.edge_factor = 1.3
+        self.edge_factor = 1.5
         # set generous upper limit if possible, but keep filter symetric
         self.f_lower = self.fc - self.bw * self.edge_factor
         self.f_upper = self.fc + self.bw * self.edge_factor
@@ -50,7 +50,7 @@ class NoteProcessing:
         # keep public time axis for recording after downsampling
         self.taxis = self._taxis[: : self.decimation]
         # beamforming specifications
-        self.beam_upsample = 10
+        self.beam_upsample = 4
 
     def baseband(self, data_in):
         """baseband data"""
@@ -68,25 +68,31 @@ class NoteProcessing:
 
     def beamform(self, baseband_data, relative_delays):
         """Construct a time domain interpolator for data, delay and sum"""
-        data_up = resample(baseband_data,
+        data_up = resample(baseband_data[:, 1:],
                            self.taxis.size * self.beam_upsample)
         dt = (self.taxis[-1] - self.taxis[0]) / (self.taxis.size - 1)
         taxis_up = np.arange(data_up.shape[0]) * dt / self.beam_upsample
 
         # intilize beam data to first channel
-        beam_out = np.tile(data_up[:, 0], (relative_delays.shape[0], 1))
+        beam_out = np.tile(baseband_data[:, 0], (relative_delays.shape[0], 1))
         beam_out = beam_out.T
 
         # frequency of demodulation
         f_shift = self.fc - self.f_bb
 
-        for delays, channel in zip(relative_delays[:, 1: ].T, data_up[:, 1: ].T):
+        for delays, channel in zip(relative_delays[:, 1: ].T, data_up.T):
             data_ier = interp1d(taxis_up, channel, kind='cubic',
                                 fill_value=0, bounds_error=False)
-            beam_times = taxis_up[:, None] + delays[None, :]
+            beam_times = self.taxis[:, None] + delays[None, :]
             # remove baseband phase shift from each channel
             delayed_chans = data_ier(beam_times)
             delayed_chans *= np.exp(2j * pi * f_shift * delays[None, :])
             # add each channel with delay to the reference channel
             beam_out += delayed_chans
+        # running average of beamformer power
+        beam_out = np.abs(beam_out) ** 2
+        N = int(np.ceil(1 / (dt * self.bw)))
+        # running average, SO # 13728392
+        cs = np.cumsum(beam_out, axis=0)
+        beam_out = (cs[N:, :] - cs[:-N, :]) / N
         return beam_out

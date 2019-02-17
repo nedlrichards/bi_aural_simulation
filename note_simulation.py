@@ -10,9 +10,9 @@ from scipy.interpolate import interp1d
 cmap = plt.cm.magma_r
 cmap.set_under('w')
 
-fc = 1000
+fc = 40000
 bw = 500
-f_bb = 1000
+f_bb = 1500
 fs = 96000
 
 # virtual array
@@ -59,20 +59,22 @@ tau_beam[:, 1] = np.sin(theta_axis) * d / c
 data_bb = processor.baseband(data_in)
 beam_out = processor.beamform(data_bb, tau_beam)
 
-fig, ax = plt.subplots()
-ax.plot(data_taxis * 1e3, data_in)
-ax.plot(processor.taxis * 1e3, data_bb)
-plt.show(block=False)
-
-beam_dB = np.sum(np.abs(beam_out) ** 2, axis=0)
-beam_dB = 10 * np.log10(np.abs(beam_dB))
+beam_dB = 10 * np.log10(beam_out)
 beam_dB -= np.max(beam_dB)
 
 fig, ax = plt.subplots()
-ax.plot(np.degrees(theta_axis), beam_dB)
+cm = ax.pcolormesh(processor.taxis[-beam_dB.shape[0]:] * 1e3,
+                   np.degrees(theta_axis),
+                   beam_dB.T, vmin=-3, vmax=0, cmap=cmap)
 
-ax.set_ylabel('beam magnitude')
-ax.set_xlabel('theta, $^o$')
+ax.set_xlabel('time, ms')
+ax.set_ylabel('theta, $^o$')
+ax.set_xlim(0, 50)
 ax.grid()
+fig.colorbar(cm)
+
+# find the largest value
+mi = np.argmax(beam_dB)
+theta_max = np.degrees(theta_axis[mi % 300])
 
 plt.show(block=False)
