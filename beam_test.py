@@ -10,9 +10,9 @@ from scipy.interpolate import interp1d
 cmap = plt.cm.magma_r
 cmap.set_under('w')
 
-fc = 1000
+fc = 10000
 bw = 500
-f_bb = 1000
+f_bb = 750
 fs = 96000
 
 # virtual array
@@ -20,7 +20,7 @@ d = 0.5
 c = 1500.
 
 # virtual arrival
-theta_inc = 25  # incident angle, degrees
+theta_inc = 5.  # incident angle, degrees
 
 # beamformer specification
 num_theta = 300
@@ -41,38 +41,45 @@ pulse_dB -= np.max(pulse_dB)
 data_taxis = processor._taxis
 data_faxis = np.arange(data_taxis.size) / data_taxis.size * fs
 data_in = np.zeros((data_taxis.size, 2), dtype=np.float_)
-data_in[9 * pulse.num_samples: 10 * pulse.num_samples, 0] = pulse.signal
+
+xmitt = kaiser(pulse.num_samples, 1.0 * np.pi)
+xmitt *= np.sin(2 * pi * 1000 * pulse.time)
+data_in[2 * pulse.num_samples: 3 * pulse.num_samples, 0] = xmitt
 
 # interpolate to create second channel arrival delayed from first
 tau = np.sin(np.radians(theta_inc)) * d / c
 tau = np.round(tau * fs) / fs
 taui = int(tau * fs)
 
-data_in[9 * pulse.num_samples + taui: 10 * pulse.num_samples + taui, 1] = pulse.signal
+data_in[2 * pulse.num_samples + taui: 3 * pulse.num_samples + taui, 1] = xmitt
 
 # construct delay vector for beamforming
 theta_axis = np.arange(num_theta) / num_theta * pi - pi / 2
 tau_beam = np.zeros((num_theta, 2), dtype=np.float_)
 tau_beam[:, 1] = np.sin(theta_axis) * d / c
 
-# baseband simulated data
-data_bb = processor.baseband(data_in)
-beam_out = processor.beamform(data_bb, tau_beam)
+sig_up = resample(xmitt, 10 * pulse.num_samples)
+taxis_up = np.arange(pulse.num_samples * 10) / (fs * 10)
 
-fig, ax = plt.subplots()
-ax.plot(data_taxis * 1e3, data_in)
-ax.plot(processor.taxis * 1e3, data_bb)
-plt.show(block=False)
+sig_ier = interp1d(taxis_up + (2 * pulse.num_samples + taui) / fs, sig_up,
+                   kind='cubic', axis=0, fill_value=0, bounds_error=False)
 
-beam_dB = np.sum(np.abs(beam_out) ** 2, axis=0)
-beam_dB = 10 * np.log10(np.abs(beam_dB))
+beam_out = np.tile(sig_up, (tau_beam.shape[0], 1))
+beam_out = beam_out.T
+
+beam_times = data_taxis[:, None] - tau_beam[:, 1]
+delayed_chans = sig_ier(beam_times)
+
+beam_out = delayed_chans + (data_in[:, 0])[:, None]
+beam_dB = np.sum(beam_out ** 2, axis=0)
+beam_dB = 10 * np.log10(beam_dB)
 beam_dB -= np.max(beam_dB)
 
 fig, ax = plt.subplots()
-ax.plot(np.degrees(theta_axis), beam_dB)
-
-ax.set_ylabel('beam magnitude')
-ax.set_xlabel('theta, $^o$')
-ax.grid()
-
-plt.show(block=False)
+#ax.plot(data_taxis, data_in[:, 0])
+#ax.plot(data_taxis, delayed_chans[:, 0])
+#ax.plot(data_taxis, delayed_chans[:, -1])
+#cm = ax.pcolormesh(theta_axis, data_taxis, beam_out ** 2, vmin=1, vmax=4, cmap=cmap)
+ax.plot(theta_axis, beam_dB)
+#fig.colorbar(cm)
+plt.show()
