@@ -10,7 +10,7 @@ from scipy.interpolate import interp1d
 cmap = plt.cm.magma_r
 cmap.set_under('w')
 
-fc = 40000
+fc = 28000
 bw = 500
 f_bb = 1500
 fs = 96000
@@ -23,7 +23,7 @@ c = 1500.
 theta_inc = 25  # incident angle, degrees
 
 # beamformer specification
-num_theta = 300
+num_theta = 800
 
 pulse = NarrowBand(fc, bw, fs)
 
@@ -65,7 +65,7 @@ beam_dB -= np.max(beam_dB)
 fig, ax = plt.subplots()
 cm = ax.pcolormesh(processor.taxis[-beam_dB.shape[0]:] * 1e3,
                    np.degrees(theta_axis),
-                   beam_dB.T, vmin=-3, vmax=0, cmap=cmap)
+                   beam_dB.T, vmin=-.5, vmax=0, cmap=cmap)
 
 ax.set_xlabel('time, ms')
 ax.set_ylabel('theta, $^o$')
@@ -75,6 +75,7 @@ fig.colorbar(cm)
 
 # find the largest value
 mi = np.argmax(beam_dB)
-theta_max = np.degrees(theta_axis[mi % 300])
+theta_max = np.degrees(theta_axis[mi % num_theta])
+print(theta_max)
 
 plt.show(block=False)
