@@ -1,37 +1,25 @@
-from math import pi
 import numpy as np
 import matplotlib.pyplot as plt
 from note_xmitt import NarrowBand
 from note_processing import NoteProcessing
-from scipy.signal import kaiser, resample
-
-from scipy.interpolate import interp1d
 
 cmap = plt.cm.magma_r
 cmap.set_under('w')
 
-fc = 10003
-bw = 500
+
+fc = 25000
+bw = 250
 f_bb = 1500
 fs = 96000
 
 # virtual array
-d = 0.5
 c = 1500.
+#d = 1.5 * c / fc
+d = 0.01875
 
 # virtual arrival
-theta_inc = 25  # incident angle, degrees
-
-# beamformer specification
-lacous = c / fc
-alias_distance = lacous / 2 / d
-num_theta = 300
-# make d sin theta a multiple of the alias distance
-d_sint = alias_distance / np.ceil(num_theta * alias_distance)
-theta_ax = np.arange(int(2 / d_sint), dtype=np.float_)
-theta_ax /= np.size(theta_ax) + 1
-theta_ax *= 2
-theta_ax -= 1
+theta_inc = 0  # incident angle, degrees
+num_theta = 600
 
 pulse = NarrowBand(fc, bw, fs)
 
@@ -55,6 +43,7 @@ data_in[9 * pulse.num_samples: 10 * pulse.num_samples, 0] = pulse.signal
 tau = np.sin(np.radians(theta_inc)) * d / c
 tau = np.round(tau * fs) / fs
 taui = int(tau * fs)
+tau_in = np.degrees(np.arcsin(tau * c / d))
 
 data_in[9 * pulse.num_samples + taui: 10 * pulse.num_samples + taui, 1] = pulse.signal
 
@@ -70,23 +59,17 @@ beam_out = processor.beamform(data_bb, tau_beam)
 beam_dB = 10 * np.log10(beam_out)
 beam_dB -= np.max(beam_dB)
 
-fig, ax = plt.subplots()
-cm = ax.pcolormesh(processor.taxis[-beam_dB.shape[0]:] * 1e3,
-                   sin_axis,
-                   beam_dB.T, vmin=-3, vmax=0, cmap=cmap)
-ax.set_xlabel('time, ms')
-ax.set_ylabel('theta, $^o$')
-ax.set_xlim(0, 50)
-ax.grid()
-fig.colorbar(cm)
-
-# find optimatal phase
+# find optimal phase
 compi = np.argmax(beam_dB)
 
 fig, ax = plt.subplots()
-ax.plot(sin_axis, beam_dB[compi // 301, :])
+ax.plot(np.degrees(np.arcsin(sin_axis)), beam_dB[compi // num_theta, :])
+ax.plot([tau_in] * 2, [0] * 2, '.')
 ax.set_title('Beamformer output at largest arrival time')
 ax.set_xlabel(r'$sin(\theta)$')
 ax.set_ylabel('dB re max')
+ax.grid()
+ax.set_ylim(-10, 1)
+ax.set_yticks([-9, -6, -3, 0])
 
 plt.show(block=False)

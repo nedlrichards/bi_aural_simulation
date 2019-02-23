@@ -1,5 +1,6 @@
 import numpy as np
-import scipy.signal as sig
+from scipy.signal import kaiser
+from math import pi
 
 class NarrowBand:
     """A narrow banded pulse"""
@@ -20,8 +21,8 @@ class NarrowBand:
 
     def narrow_band(self):
         """create an narrow banded pulse to specs"""
-        xmitt = np.sin(2 * np.pi * self.fc * self.time)
+        xmitt = np.sin(2 * pi * self.fc * self.time)
         # window is unknown, assuming a pretty narrow mainlobe
-        window = sig.kaiser(self.num_samples, 1.0 * np.pi)
+        window = kaiser(self.num_samples, 1.0 * np.pi)
         xmitt *= window
         return xmitt
